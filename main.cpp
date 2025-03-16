@@ -1,6 +1,6 @@
 #include <windows.h>
 #include <tlhelp32.h>
-#include <iostream>
+#include <iostream> // std::cout
 #include <thread>
 #include <chrono>
 #include <random>
@@ -11,9 +11,9 @@ DWORD_PTR dwEntityList      = 0x1A37A30;
 DWORD_PTR dwLocalPlayerPawn = 0x188BF30;
 DWORD m_iIDEntIndex         = 0x1458;
 DWORD m_iTeamNum            = 0x3E3;
-DWORD m_iHealth             = 0x1410;
+DWORD m_iHealth             = 0x344;
 
-// Funktion, um den Modul-Basisadresse von client.dll zu finden
+// function to get the base address of a module
 DWORD_PTR GetModuleBaseAddress(DWORD procId, const wchar_t* modName) {
     DWORD_PTR modBaseAddr = 0;
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, procId);
@@ -33,13 +33,13 @@ DWORD_PTR GetModuleBaseAddress(DWORD procId, const wchar_t* modName) {
     return modBaseAddr;
 }
 
-// Funktion, um einen linken Mausklick zu simulieren
+// function to simulate a left mouse click
 void LeftMouseClick() {
     INPUT input = {0};
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
     SendInput(1, &input, sizeof(INPUT));
-    // Zufällige kurze Pause
+    // random sleep time
     std::this_thread::sleep_for(std::chrono::milliseconds(10 + rand() % 40));
 
     ZeroMemory(&input, sizeof(INPUT));
@@ -49,9 +49,9 @@ void LeftMouseClick() {
 }
 
 int main() {
-    std::cout << "[-] TriggerBot gestartet.\n[-] Trigger-Taste: SHIFT" << std::endl;
+    std::cout << "clientexe start\n[-] Trigger-key: SHIFT" << std::endl;
 
-    // Suchen des Prozesses "cs2.exe"
+    // search for cs2 window
     DWORD procId = 0;
     HWND hWnd = FindWindow(NULL, L"Counter-Strike 2");
     if (hWnd == NULL) {
@@ -59,21 +59,21 @@ int main() {
         return 1;
     }
 
-    // Hole den Prozess-ID über den Fensterhandle
+    // get process id
     GetWindowThreadProcessId(hWnd, &procId);
     if (procId == 0) {
         std::cout << "Prozess-ID konnte nicht ermittelt werden." << std::endl;
         return 1;
     }
 
-    // Öffne den Prozess mit Lesezugriff
+    // open process with read acess
     HANDLE hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION, FALSE, procId);
     if (!hProcess) {
         std::cout << "Fehler beim Öffnen des Prozesses." << std::endl;
         return 1;
     }
 
-    // Hole die Basisadresse von "client.dll"
+    // base adress client.dll
     DWORD_PTR clientBase = GetModuleBaseAddress(procId, L"client.dll");
     if (!clientBase) {
         std::cout << "client.dll nicht gefunden." << std::endl;
@@ -81,13 +81,13 @@ int main() {
         return 1;
     }
 
-    // Zufallszahlengenerator für Schlafzeiten
+    // random sleep time
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distClick(10, 50);   // in Millisekunden
-    std::uniform_int_distribution<> distLoop(10, 30);      // in Millisekunden
+    std::uniform_int_distribution<> distLoop(6, 25);      // ms
 
     while (true) {
+        // Check if game is in focus
         wchar_t wndTitle[256];
         HWND foreground = GetForegroundWindow();
         GetWindowTextW(foreground, wndTitle, sizeof(wndTitle) / sizeof(wchar_t));
@@ -96,41 +96,42 @@ int main() {
             continue;
         }
 
-        // Prüfe, ob SHIFT gedrückt wird
+        // Triggerbot
         if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
-            // Lese den Spieler-Pointer
+            // read local player pointer
             DWORD_PTR localPlayer = 0;
             if (!ReadProcessMemory(hProcess, (LPCVOID)(clientBase + dwLocalPlayerPawn), &localPlayer, sizeof(localPlayer), nullptr)) {
                 continue;
             }
 
-            // Lese Entity-ID
+            // read entity ID
             int entityId = 0;
             if (!ReadProcessMemory(hProcess, (LPCVOID)(localPlayer + m_iIDEntIndex), &entityId, sizeof(entityId), nullptr)) {
                 continue;
             }
 
             if (entityId > 0) {
-                // Lese Entity-Liste
+                // read entitiy list
                 DWORD_PTR entityList = 0;
                 if (!ReadProcessMemory(hProcess, (LPCVOID)(clientBase + dwEntityList), &entityList, sizeof(entityList), nullptr)) {
                     continue;
                 }
 
-                // Berechne Adressen basierend auf entityId
+                // calc entity addresses
                 DWORD_PTR entEntry = 0;
                 SIZE_T bytesRead = 0;
-                // Annahme: (entityId >> 9) * 0x8 + 0x10
+                // (entityId >> 9) * 0x8 + 0x10
                 if (!ReadProcessMemory(hProcess, (LPCVOID)(entityList + 0x8 * (entityId >> 9) + 0x10), &entEntry, sizeof(entEntry), &bytesRead)) {
                     continue;
                 }
+
                 DWORD_PTR entity = 0;
-                // Annahme: 120 * (entityId & 0x1FF)
+                // 120 * (entityId & 0x1FF)
                 if (!ReadProcessMemory(hProcess, (LPCVOID)(entEntry + 120 * (entityId & 0x1FF)), &entity, sizeof(entity), &bytesRead)) {
                     continue;
                 }
 
-                // Lese Team-IDs
+                // read team ids
                 int entityTeam = 0, playerTeam = 0;
                 if (!ReadProcessMemory(hProcess, (LPCVOID)(entity + m_iTeamNum), &entityTeam, sizeof(entityTeam), nullptr)) {
                     continue;
@@ -139,14 +140,15 @@ int main() {
                     continue;
                 }
 
-                // Wenn Gegner
+                // check if entity is not on the same team
                 if (entityTeam != playerTeam) {
                     int entityHp = 0;
                     if (!ReadProcessMemory(hProcess, (LPCVOID)(entity + m_iHealth), &entityHp, sizeof(entityHp), nullptr)) {
                         continue;
                     }
+                    std::cout << "Entity HP: " << entityHp << std::endl;
                     if (entityHp > 0) {
-                        // Zufällige Verzögerung vor dem Schuss
+                        // random sleep time
                         std::this_thread::sleep_for(std::chrono::milliseconds(distLoop(gen)));
                         LeftMouseClick();
                     }
